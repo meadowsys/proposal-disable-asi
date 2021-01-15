@@ -1,60 +1,85 @@
-# template-for-proposals
+# Disable Automatic Semicolon Insertion (ASI)
 
-A repository template for ECMAScript proposals.
+## Background Info
 
-## Before creating a proposal
+Javascript is an interpreted language, and there is no compilation stage that checks for syntax errors. When you deliver a script to someone in a website (for example) and it's missing a semicolon, the script would stop running because of a syntax error. Because of this, Automatic Semicolon Insertion (ASI) was created. Javascript will try to insert a semicolon to fix a syntax error instead of just crashing.
 
-Please ensure the following:
-  1. You have read the [process document](https://tc39.github.io/process-document/)
-  1. You have reviewed the [existing proposals](https://github.com/tc39/proposals/)
-  1. You are aware that your proposal requires being a member of TC39, or locating a TC39 delegate to "champion" your proposal
+## Problem
 
-## Create your proposal repo
+### Inserting when not expected to
 
-Follow these steps:
-  1.  Click the green ["use this template"](https://github.com/tc39/template-for-proposals/generate) button in the repo header. (Note: Do not fork this repo in GitHub's web interface, as that will later prevent transfer into the TC39 organization)
-  1.  Go to your repo settings “Options” page, under “GitHub Pages”, and set the source to the **main branch** under the root (and click Save, if it does not autosave this setting)
-      1. check "Enforce HTTPS"
-      1. On "Options", under "Features", Ensure "Issues" is checked, and disable "Wiki", and "Projects" (unless you intend to use Projects)
-      1. Under "Merge button", check "automatically delete head branches"
-<!--
-  1.  Avoid merge conflicts with build process output files by running:
-      ```sh
-      git config --local --add merge.output.driver true
-      git config --local --add merge.output.driver true
-      ```
-  1.  Add a post-rewrite git hook to auto-rebuild the output on every commit:
-      ```sh
-      cp hooks/post-rewrite .git/hooks/post-rewrite
-      chmod +x .git/hooks/post-rewrite
-      ```
--->
-  3.  ["How to write a good explainer"][explainer] explains how to make a good first impression.
+This causes issues where a semicolon would be inserted in a wrong location, causing lots of weird bugs that wouldn't have happened if ASI didn't exist.
 
-      > Each TC39 proposal should have a `README.md` file which explains the purpose
-      > of the proposal and its shape at a high level.
-      >
-      > ...
-      >
-      > The rest of this page can be used as a template ...
+In some cases, it inserts a semicolon in a place that one shouldn't be in. For example:
 
-      Your explainer can point readers to the `index.html` generated from `spec.emu`
-      via markdown like
+```js
+// using this syntax because it makes sense in this context
+function hello()
+{
+   return
+   {
+      message: "Hello World!!!!!"
+   }
+}
+```
 
-      ```markdown
-      You can browse the [ecmarkup output](https://ACCOUNT.github.io/PROJECT/)
-      or browse the [source](https://github.com/ACCOUNT/PROJECT/blob/HEAD/spec.emu).
-      ```
+This code is treated as:
 
-      where *ACCOUNT* and *PROJECT* are the first two path elements in your project's Github URL.
-      For example, for github.com/**tc39**/**template-for-proposals**, *ACCOUNT* is "tc39"
-      and *PROJECT* is "template-for-proposals".
+```js
+function hello()
+{
+   return;
+   {
+      message: "Hello World!!!!!";
+   }
+}
+```
 
+What was intended is to return `{ message: "Hello World!!!!!" }`, but instead the function returns void, then creates a new block with a labeled `Hello World!!!!!` (this block is unreachable).
 
-## Maintain your proposal repo
+This example is adapted [from ESLint](https://eslint.org/docs/rules/semi)
 
-  1. Make your changes to `spec.emu` (ecmarkup uses HTML syntax, but is not HTML, so I strongly suggest not naming it ".html")
-  1. Any commit that makes meaningful changes to the spec, should run `npm run build` and commit the resulting output.
-  1. Whenever you update `ecmarkup`, run `npm run build` and commit any changes that come from that dependency.
+### Not inserting when expected to
 
-  [explainer]: https://github.com/tc39/how-we-work/blob/HEAD/explainer.md
+In another case, a semicolon wouldn't be inserted where it would be expected to. For example:
+
+```js
+var counter = {}
+
+(function() {
+   var n = 0
+   counter.increment = function() {
+      return ++n
+   }
+})()
+```
+
+This is treated the same as:
+
+```js
+var counter = {}(function() {
+   var n = 0;
+   counter.increment = function() {
+      return ++n;
+   }
+})();
+```
+
+Javascript doesn't insert a semicolon after the first line. It tries to take the empty object `{}` and call it (using the function as a parameter), then calling the result again with no parameters. This doesn't work because empty object isn't callable, so it throws.
+
+This example is taken [from ESLint](https://eslint.org/docs/rules/semi)
+
+## Solution
+
+At the very top of a source file (or script tag), we can do something like:
+
+```js
+"disable asi";
+// not set on this, may change the contents of the string
+```
+
+Doing this disables ASI. When a parser has ASI disabled and it finds a syntax error, instead of continuing to parse the script, it stops and errors when it finds a missing semicolon.
+
+This is similar to `"use strict";` in the way that its just a string literal at the top of a file, so its backwards compatible.
+
+Existing languages (like Java and C++) never had ASI, mostly because unlike Javascript, they are languages that require a checking layer before deployment. Now this isn't much of a problem anymore because Javascript has a rich ecosystem of transpilers (like TypeScript and Webpack) and code linters (like ESLint). There are tonnes of ways to check code before shipping. Code editors can also check for the string at the beginning of the file and provide syntax errors when it finds a missing semicolon (like editors are doing already for other languages).
